@@ -1,0 +1,2 @@
+# speck
+Lightweight spotify control
