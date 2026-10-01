@@ -45,18 +45,27 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                // Help goes in a row rather than the section footer: grouped-form footers are laid out
+                // in the value column, so they only get about half the window's width.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Create an app at developer.spotify.com with the redirect URI above, then paste its Client ID here. The Client ID isn't secret; your login is stored in the macOS Keychain.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 16) {
+                        Button { SetupWindow.show(model) } label: {
+                            Label("Open the setup guide", systemImage: "questionmark.circle")
+                        }
+                        Link(destination: URL(string: "https://developer.spotify.com/dashboard")!) {
+                            Label("Spotify Developer Dashboard", systemImage: "arrow.up.right.square")
+                        }
+                    }
+                    .buttonStyle(.link)
+                    .font(.callout)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             } header: {
                 Text("Spotify")
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Create an app at developer.spotify.com with the redirect URI above, then paste its Client ID here. The Client ID isn't secret; your login is stored in the macOS Keychain.")
-                    Link("Open Spotify Developer Dashboard", destination: URL(string: "https://developer.spotify.com/dashboard")!)
-                    Button("Open the setup guide") { SetupWindow.show(model) }.buttonStyle(.link)
-                }
-                .font(.caption).foregroundStyle(.secondary)
-                // Grouped-form footers are trailing-aligned at their ideal width; make it span the section
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Section("Playback") {
