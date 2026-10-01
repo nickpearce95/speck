@@ -21,6 +21,7 @@ struct SpeckApp: App {
                 .environment(model)
                 .environment(updater)
                 .frame(width: 340)
+                .background(PinWindowTop())
                 .onAppear { model.menuOpen = true }
                 .onDisappear { model.menuOpen = false }
         } label: {
@@ -316,6 +317,37 @@ struct Footer: View {
                 .keyboardShortcut("q")
         }
         .font(.caption)
+    }
+}
+
+/// MenuBarExtra windows shrink towards the bottom, leaving a gap under the menu bar when the
+/// content gets shorter (e.g. search results clear). Keeps the window's top edge where it opened.
+struct PinWindowTop: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { PinView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class PinView: NSView {
+        private var top: CGFloat?
+        private var observers: [NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+            observers = []
+            guard let window else { return }
+            let nc = NotificationCenter.default
+            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) {
+                [weak self, weak window] _ in
+                MainActor.assumeIsolated { self?.top = window?.frame.maxY }
+            })
+            observers.append(nc.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) {
+                [weak self, weak window] _ in
+                MainActor.assumeIsolated {
+                    guard let window, let top = self?.top, window.frame.maxY != top else { return }
+                    window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top))
+                }
+            })
+        }
     }
 }
 
