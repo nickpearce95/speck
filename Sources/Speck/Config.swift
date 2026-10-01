@@ -35,7 +35,7 @@ final class Prefs {
 
 /// Minimal wrapper around the login keychain (generic passwords).
 enum Keychain {
-    private static let service = "net.nickpearce.speck"
+    private static let service = "app.speck.menubar"
 
     private static func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

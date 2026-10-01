@@ -47,7 +47,7 @@ to sync with the player (Soloist engine).
 - Spotify login uses Authorization Code + PKCE (no client secret) with a one-shot listener
   on `127.0.0.1` that only accepts the redirect carrying the expected `state`.
 - Tokens are stored in the login Keychain (item "Speck – Spotify login"). Settings live in
-  `UserDefaults` (`net.nickpearce.speck`); the Client ID isn't secret.
+  `UserDefaults` (`app.speck.menubar`); the Client ID isn't secret.
 - Scopes are limited to reading and controlling playback, plus `streaming` (and the
   `user-read-email`/`user-read-private` scopes the SDK requires) for This Mac.
 - The This Mac web view uses a non-persistent data store, can only load Spotify hosts in
