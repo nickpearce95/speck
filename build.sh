@@ -3,12 +3,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-swift build -c release
+swift build -c release -Xswiftc -Osize -Xlinker -dead_strip
 APP=build/Speck.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp .build/release/Speck "$APP/Contents/MacOS/Speck"
+strip -x "$APP/Contents/MacOS/Speck"   # drop local symbols (~700 KB)
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
