@@ -18,7 +18,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
     <key>CFBundleName</key><string>Speck</string>
     <key>CFBundleDisplayName</key><string>Speck</string>
-    <key>CFBundleIdentifier</key><string>net.nickpearce.speck</string>
+    <key>CFBundleIdentifier</key><string>app.speck.menubar</string>
     <key>CFBundleExecutable</key><string>Speck</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>

@@ -4,7 +4,21 @@ A tiny menu bar Spotify remote: search, play/pause/skip/seek/volume, switch devi
 (Chromecasts included), and macOS media keys + Control Centre "Now Playing".
 Other devices stream directly from Spotify; optionally the Mac itself is a device too.
 
-## Build
+## Install
+
+Needs macOS 14 (Sonoma) or later on an Apple Silicon Mac (M1 or newer).
+
+1. Open the [latest release](../../releases/latest) and download `Speck.zip` under **Assets**.
+2. Double-click the zip to unzip it, then drag **Speck.app** into your **Applications** folder.
+3. Open Speck. Because the app isn't notarized by Apple, macOS blocks it the first time:
+   - Click **Done** (or **OK**) on the warning.
+   - Open **System Settings → Privacy & Security**, scroll down to the message about
+     Speck, and click **Open Anyway**. Confirm with your password or Touch ID.
+
+   Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/Speck.app`, then open it normally.
+4. Speck has no Dock icon. Look for its icon in the menu bar, then follow [Setup](#setup).
+
+## Build from source
 
 ```bash
 ./build.sh --install   # builds and copies to /Applications/Speck.app
@@ -17,7 +31,7 @@ To regenerate the app icon after editing `Icon/make-icon.swift`, run `Icon/make-
 
 1. Go to https://developer.spotify.com/dashboard → **Create app**
    - Redirect URI: `http://127.0.0.1:8898/callback` (exactly this)
-   - APIs used: **Web API**
+   - APIs used: **Web API** and **Web Playback SDK**
 2. Click the Speck icon in the menu bar → ⚙ (or ⌘,) to open **Settings**
 3. Paste the app's **Client ID**, then click **Log in with Spotify**
 
@@ -26,8 +40,7 @@ Spotify Premium is required for playback control.
 ### Playing on this Mac
 Speck can also be a speaker itself: it runs Spotify's official Web Playback SDK in a hidden,
 locked-down WebKit view (FairPlay DRM, like Safari) and shows up as **This Mac**.
-In the Spotify dashboard, tick **Web Playback SDK** under *APIs used*. Logins made before
-this feature need redoing once (Speck shows "This Mac — log in again to enable").
+This needs **Web Playback SDK** ticked in the Spotify dashboard (see Setup).
 Turn it off in Settings → Playback → Play on this Mac.
 
 ### Chromecasts
@@ -47,7 +60,7 @@ to sync with the player (Soloist engine).
 - Spotify login uses Authorization Code + PKCE (no client secret) with a one-shot listener
   on `127.0.0.1` that only accepts the redirect carrying the expected `state`.
 - Tokens are stored in the login Keychain (item "Speck – Spotify login"). Settings live in
-  `UserDefaults` (`net.nickpearce.speck`); the Client ID isn't secret.
+  `UserDefaults` (`app.speck.menubar`); the Client ID isn't secret.
 - Scopes are limited to reading and controlling playback, plus `streaming` (and the
   `user-read-email`/`user-read-private` scopes the SDK requires) for This Mac.
 - The This Mac web view uses a non-persistent data store, can only load Spotify hosts in
