@@ -22,7 +22,7 @@ jobs:
       VERSION: ${{ inputs.version || github.ref_name }}
       UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build
         run: |
           key="$(swift scripts/sign-update.swift --public-key)"
