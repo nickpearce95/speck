@@ -48,6 +48,9 @@ struct SettingsView: View {
                     Link("Open Spotify Developer Dashboard", destination: URL(string: "https://developer.spotify.com/dashboard")!)
                 }
                 .font(.caption).foregroundStyle(.secondary)
+                // Grouped-form footers are trailing-aligned at their ideal width; make it span the section
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Section("Playback") {
