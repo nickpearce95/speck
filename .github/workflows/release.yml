@@ -1,5 +1,6 @@
-# Builds Speck.app on a GitHub Mac and publishes it as a release.
+# Builds Speck.app on a GitHub Mac and publishes it as a release, signed for auto-update.
 # Usage: Actions → Release → Run workflow (enter e.g. 0.2), or git tag v0.2 && git push origin v0.2
+# Needs the UPDATE_SIGNING_KEY secret (see scripts/update-key.swift).
 name: Release
 
 on:
@@ -19,15 +20,21 @@ jobs:
     runs-on: macos-15
     env:
       VERSION: ${{ inputs.version || github.ref_name }}
+      UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: VERSION="${VERSION#v}" ./build.sh
-      - name: Zip
-        run: ditto -c -k --keepParent build/Speck.app Speck.zip
+        run: |
+          key="$(swift scripts/sign-update.swift --public-key)"
+          export VERSION="${VERSION#v}" UPDATE_REPO="$GITHUB_REPOSITORY" UPDATE_PUBLIC_KEY="$key"
+          ./build.sh
+      - name: Zip and sign
+        run: |
+          ditto -c -k --keepParent build/Speck.app Speck.zip
+          swift scripts/sign-update.swift Speck.zip
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${VERSION#v}"
-          gh release create "v$v" Speck.zip --target "$GITHUB_SHA" --title "Speck $v" --generate-notes
+          gh release create "v$v" Speck.zip Speck.zip.sig --target "$GITHUB_SHA" --title "Speck $v" --generate-notes

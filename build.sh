@@ -1,5 +1,6 @@
 #!/bin/zsh
 # Builds Speck.app (menu bar only, no Dock icon). Usage: ./build.sh [--install]
+# Release builds set VERSION, UPDATE_REPO and UPDATE_PUBLIC_KEY; without them the updater is off.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -27,6 +28,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>SpeckUpdateRepo</key><string>${UPDATE_REPO:-}</string>
+    <key>SpeckUpdatePublicKey</key><string>${UPDATE_PUBLIC_KEY:-}</string>
 </dict>
 </plist>
 PLIST
