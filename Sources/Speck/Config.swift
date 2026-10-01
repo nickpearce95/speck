@@ -6,8 +6,8 @@ import Security
 @MainActor
 @Observable
 final class Prefs {
-    static let redirectPort = 8898
-    static var redirectURI: String { "http://127.0.0.1:\(redirectPort)/callback" }
+    nonisolated static let redirectPort = 8898
+    nonisolated static var redirectURI: String { "http://127.0.0.1:\(redirectPort)/callback" }
 
     private let defaults = UserDefaults.standard
 

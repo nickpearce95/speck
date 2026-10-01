@@ -11,15 +11,11 @@ struct Tokens: Codable {
 }
 
 enum AuthError: LocalizedError {
-    case missingClientId, invalidClientId, invalidRedirectURI, notLoggedIn, timedOut, denied, portInUse
+    case missingClientId, notLoggedIn, timedOut, denied, portInUse
     case badCallback(String), tokenExchange(String)
     var errorDescription: String? {
         switch self {
         case .missingClientId: return "Add your Spotify Client ID in Settings"
-        case .invalidClientId:
-            return "Spotify doesn't recognise that Client ID. Copy it again from your app's Settings page on developer.spotify.com."
-        case .invalidRedirectURI:
-            return "Your Spotify app is missing the redirect URI. Add \(Prefs.redirectURI) under Redirect URIs in its settings, then Save."
         case .notLoggedIn: return "Not logged in"
         case .timedOut:
             return "Didn't hear back from Spotify. If the browser showed an error, check the Client ID and redirect URI, then try again."
@@ -96,11 +92,6 @@ final class SpotifyAuth {
             .init(name: "state", value: state),
         ]
 
-        // Spotify shows a bad Client ID or redirect URI as an error page and never redirects back,
-        // so ask it first and say what's wrong instead of leaving the user waiting.
-        if let problem = await Self.preflight(comps.url!) { throw problem }
-        try Task.checkCancellation()
-
         // The server only returns a callback whose state matches; forged requests are ignored.
         let server = LoopbackServer(port: UInt16(Prefs.redirectPort), expectedState: state)
         let items = try await withTaskCancellationHandler {
@@ -158,23 +149,6 @@ final class SpotifyAuth {
         tokens = t
         Keychain.write(try JSONEncoder().encode(t), Self.keychainAccount)
         return t
-    }
-
-    /// Loads the authorize URL without following redirects. A valid app redirects to Spotify's login;
-    /// a bad one gets a 400 page naming the problem. Anything unexpected returns nil so login goes ahead.
-    private static func preflight(_ url: URL) async -> AuthError? {
-        final class NoRedirect: NSObject, URLSessionTaskDelegate {
-            func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                            newRequest request: URLRequest) async -> URLRequest? { nil }
-        }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 10
-        guard let (data, resp) = try? await URLSession.shared.data(for: req, delegate: NoRedirect()),
-              (resp as? HTTPURLResponse)?.statusCode == 400 else { return nil }
-        let body = String(decoding: data, as: UTF8.self).lowercased()
-        if body.contains("invalid redirect uri") { return .invalidRedirectURI }
-        if body.contains("invalid client") { return .invalidClientId }
-        return nil
     }
 
     private static func randomString(_ n: Int) -> String {
