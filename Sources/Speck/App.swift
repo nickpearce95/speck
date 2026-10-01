@@ -3,8 +3,17 @@ import SwiftUI
 
 @main
 struct SpeckApp: App {
-    @State private var model = PlayerModel()
+    @State private var model: PlayerModel
     @State private var updater = Updater()
+
+    init() {
+        let model = PlayerModel()
+        _model = State(initialValue: model)
+        // First run: walk the user through creating a Spotify app and logging in
+        if !model.prefs.hasClientId && !model.isLoggedIn {
+            Task { @MainActor in SetupWindow.show(model) }
+        }
+    }
 
     var body: some Scene {
         MenuBarExtra {
@@ -12,6 +21,7 @@ struct SpeckApp: App {
                 .environment(model)
                 .environment(updater)
                 .frame(width: 340)
+                .background(PinWindowTop())
                 .onAppear { model.menuOpen = true }
                 .onDisappear { model.menuOpen = false }
         } label: {
@@ -272,11 +282,21 @@ struct LoginView: View {
             if model.prefs.hasClientId {
                 Text("Connect your Spotify account. You'll be sent to Spotify in your browser.")
                     .font(.callout).foregroundStyle(.secondary)
-                Button("Log in with Spotify") { model.login() }.buttonStyle(.borderedProminent)
+                if model.loginState == .idle {
+                    Button("Log in with Spotify") { model.login() }.buttonStyle(.borderedProminent)
+                } else {
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("Waiting for the browser…").font(.callout)
+                        Button("Cancel") { model.cancelLogin() }
+                    }
+                }
+                Button("Open the setup guide") { SetupWindow.show(model) }
+                    .buttonStyle(.link).font(.caption)
             } else {
-                Text("Add your Spotify Client ID in Settings to get started.")
+                Text("Speck needs a one-time setup to connect to your Spotify account. It takes about two minutes.")
                     .font(.callout).foregroundStyle(.secondary)
-                OpenSettingsButton(title: "Open Settings…")
+                Button("Set Up Speck…") { SetupWindow.show(model) }.buttonStyle(.borderedProminent)
             }
         }
     }
@@ -297,6 +317,37 @@ struct Footer: View {
                 .keyboardShortcut("q")
         }
         .font(.caption)
+    }
+}
+
+/// MenuBarExtra windows shrink towards the bottom, leaving a gap under the menu bar when the
+/// content gets shorter (e.g. search results clear). Keeps the window's top edge where it opened.
+struct PinWindowTop: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { PinView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class PinView: NSView {
+        private var top: CGFloat?
+        private var observers: [NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+            observers = []
+            guard let window else { return }
+            let nc = NotificationCenter.default
+            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) {
+                [weak self, weak window] _ in
+                MainActor.assumeIsolated { self?.top = window?.frame.maxY }
+            })
+            observers.append(nc.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) {
+                [weak self, weak window] _ in
+                MainActor.assumeIsolated {
+                    guard let window, let top = self?.top, window.frame.maxY != top else { return }
+                    window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top))
+                }
+            })
+        }
     }
 }
 

@@ -35,9 +35,14 @@ struct SettingsView: View {
                             Label("Logged in", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                             Button("Log Out") { model.logout() }.controlSize(.small)
                         }
-                    } else {
+                    } else if model.loginState == .idle {
                         Button("Log in with Spotify") { model.login() }
                             .disabled(!model.prefs.hasClientId)
+                    } else {
+                        HStack {
+                            ProgressView().controlSize(.small)
+                            Button("Cancel Login") { model.cancelLogin() }.controlSize(.small)
+                        }
                     }
                 }
             } header: {
@@ -46,6 +51,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Create an app at developer.spotify.com with the redirect URI above, then paste its Client ID here. The Client ID isn't secret; your login is stored in the macOS Keychain.")
                     Link("Open Spotify Developer Dashboard", destination: URL(string: "https://developer.spotify.com/dashboard")!)
+                    Button("Open the setup guide") { SetupWindow.show(model) }.buttonStyle(.link)
                 }
                 .font(.caption).foregroundStyle(.secondary)
                 // Grouped-form footers are trailing-aligned at their ideal width; make it span the section

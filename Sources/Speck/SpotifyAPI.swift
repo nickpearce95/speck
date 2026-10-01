@@ -81,6 +81,12 @@ final class SpotifyAPI {
         return data.isEmpty ? nil : try JSONDecoder().decode(PlaybackState.self, from: data)
     }
 
+    /// The account's subscription level, e.g. "premium" or "free".
+    func product() async throws -> String? {
+        struct R: Decodable { let product: String? }
+        return try JSONDecoder().decode(R.self, from: try await request("GET", "/me")).product
+    }
+
     func devices() async throws -> [Device] {
         struct R: Decodable { let devices: [Device] }
         return try JSONDecoder().decode(R.self, from: try await request("GET", "/me/player/devices")).devices
