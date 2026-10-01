@@ -18,10 +18,6 @@ Needs macOS 14 (Sonoma) or later on an Apple Silicon Mac (M1 or newer).
    Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/Speck.app`, then open it normally.
 4. Speck has no Dock icon. Look for its icon in the menu bar, then follow [Setup](#setup).
 
-To update, quit Speck (menu bar icon → **Quit**, or ⌘Q while it’s open), download the new
-release and replace the old app in Applications. macOS asks for Keychain access once
-after each update. Choose **Always Allow**.
-
 ## Build from source
 
 ```bash
@@ -35,7 +31,7 @@ To regenerate the app icon after editing `Icon/make-icon.swift`, run `Icon/make-
 
 1. Go to https://developer.spotify.com/dashboard → **Create app**
    - Redirect URI: `http://127.0.0.1:8898/callback` (exactly this)
-   - APIs used: **Web API**
+   - APIs used: **Web API** and **Web Playback SDK**
 2. Click the Speck icon in the menu bar → ⚙ (or ⌘,) to open **Settings**
 3. Paste the app's **Client ID**, then click **Log in with Spotify**
 
@@ -44,8 +40,7 @@ Spotify Premium is required for playback control.
 ### Playing on this Mac
 Speck can also be a speaker itself: it runs Spotify's official Web Playback SDK in a hidden,
 locked-down WebKit view (FairPlay DRM, like Safari) and shows up as **This Mac**.
-In the Spotify dashboard, tick **Web Playback SDK** under *APIs used*. Logins made before
-this feature need redoing once (Speck shows "This Mac — log in again to enable").
+This needs **Web Playback SDK** ticked in the Spotify dashboard (see Setup).
 Turn it off in Settings → Playback → Play on this Mac.
 
 ### Chromecasts
