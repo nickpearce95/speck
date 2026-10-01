@@ -18,6 +18,10 @@ Needs macOS 14 (Sonoma) or later on an Apple Silicon Mac (M1 or newer).
    Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/Speck.app`, then open it normally.
 4. Speck has no Dock icon. Look for its icon in the menu bar, then follow [Setup](#setup).
 
+Speck keeps itself up to date: once a day it checks for a new release, installs it in the
+background and shows **Restart to update** in the menu. Turn this off, or check straight away,
+in Settings → Updates. After an update, macOS asks once for Keychain access. Choose **Always Allow**.
+
 ## Build from source
 
 ```bash
@@ -26,6 +30,17 @@ Needs macOS 14 (Sonoma) or later on an Apple Silicon Mac (M1 or newer).
 
 Needs only the Xcode Command Line Tools (Swift 5.10+), macOS 14+.
 To regenerate the app icon after editing `Icon/make-icon.swift`, run `Icon/make-icns.sh`.
+Local builds don't update themselves.
+
+## Releasing
+
+Run **Actions → Release → Run workflow** and enter a version (e.g. `0.2`), or push a tag like
+`v0.2`. GitHub builds the app and publishes `Speck.zip` with a signature that installed copies
+check before updating.
+
+One-time setup: run `swift scripts/update-key.swift | pbcopy` and paste the result as a
+repository secret named `UPDATE_SIGNING_KEY` (Settings → Secrets and variables → Actions).
+Keep a copy somewhere safe. Installed copies only accept updates signed with this key.
 
 ## Setup
 
@@ -66,5 +81,8 @@ to sync with the player (Soloist engine).
 - The This Mac web view uses a non-persistent data store, can only load Spotify hosts in
   sub-frames, never navigates its top-level page, and its token bridge only answers the
   page Speck created.
+- Updates are only installed when `Speck.zip` matches its Ed25519 signature (checked against a
+  public key built into the app), and the app inside has the same bundle ID, a newer version and
+  a valid code signature.
 - The app is ad-hoc signed with the hardened runtime. Because an ad-hoc signature changes
   on every build, macOS asks for Keychain access once after each rebuild. Choose **Always Allow**.

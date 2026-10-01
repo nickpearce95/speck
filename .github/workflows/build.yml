@@ -1,0 +1,12 @@
+# Checks that Speck still builds on every pull request.
+name: Build
+
+on:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./build.sh

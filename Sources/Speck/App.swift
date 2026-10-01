@@ -4,11 +4,13 @@ import SwiftUI
 @main
 struct SpeckApp: App {
     @State private var model = PlayerModel()
+    @State private var updater = Updater()
 
     var body: some Scene {
         MenuBarExtra {
             MenuContent()
                 .environment(model)
+                .environment(updater)
                 .frame(width: 340)
                 .onAppear { model.menuOpen = true }
                 .onDisappear { model.menuOpen = false }
@@ -18,7 +20,7 @@ struct SpeckApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView().environment(model)
+            SettingsView().environment(model).environment(updater)
         }
     }
 }
@@ -281,10 +283,16 @@ struct LoginView: View {
 }
 
 struct Footer: View {
+    @Environment(Updater.self) private var updater
+
     var body: some View {
         HStack {
             OpenSettingsButton(title: nil)
             Spacer()
+            if case .ready(let version) = updater.state {
+                Button("Restart to update to \(version)") { updater.relaunch() }
+                    .buttonStyle(.plain).foregroundStyle(.green)
+            }
             Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.plain).foregroundStyle(.secondary)
                 .keyboardShortcut("q")
         }

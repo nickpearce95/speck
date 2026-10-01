@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(PlayerModel.self) private var model
+    @Environment(Updater.self) private var updater
     @State private var clientId = ""
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginItemError: String?
@@ -74,6 +75,27 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Updates") {
+                @Bindable var updater = updater
+                LabeledContent("Version", value: updater.currentVersion)
+                if updater.isAvailable {
+                    Toggle("Install updates automatically", isOn: $updater.automatic)
+                    HStack {
+                        Text(updateStatus).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        if case .ready = updater.state {
+                            Button("Restart Now") { updater.relaunch() }.controlSize(.small)
+                        } else {
+                            Button("Check Now") { updater.checkNow() }.controlSize(.small)
+                                .disabled(updater.state == .checking || updateInstalling)
+                        }
+                    }
+                } else {
+                    Text("This copy was built locally, so it doesn't update itself. Releases from GitHub do.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
             if let status = model.status {
                 Section { Text(status).font(.caption).foregroundStyle(.secondary) }
             }
@@ -84,6 +106,21 @@ struct SettingsView: View {
         .onAppear {
             clientId = model.prefs.clientId
             NSApp.activate()
+        }
+    }
+
+    private var updateInstalling: Bool {
+        if case .installing = updater.state { return true } else { return false }
+    }
+
+    private var updateStatus: String {
+        switch updater.state {
+        case .idle: return updater.automatic ? "Checks GitHub once a day." : "Automatic updates are off."
+        case .checking: return "Checking…"
+        case .upToDate: return "Speck is up to date."
+        case .installing(let v): return "Installing \(v)…"
+        case .ready(let v): return "Speck \(v) is installed. Restart to use it."
+        case .failed(let message): return message
         }
     }
 
