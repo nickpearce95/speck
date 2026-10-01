@@ -4,7 +4,25 @@ A tiny menu bar Spotify remote: search, play/pause/skip/seek/volume, switch devi
 (Chromecasts included), and macOS media keys + Control Centre "Now Playing".
 Other devices stream directly from Spotify; optionally the Mac itself is a device too.
 
-## Build
+## Install
+
+Needs macOS 14 (Sonoma) or later on an Apple Silicon Mac (M1 or newer).
+
+1. Open the [latest release](../../releases/latest) and download `Speck.zip` under **Assets**.
+2. Double-click the zip to unzip it, then drag **Speck.app** into your **Applications** folder.
+3. Open Speck. Because the app isn't notarized by Apple, macOS blocks it the first time:
+   - Click **Done** (or **OK**) on the warning.
+   - Open **System Settings → Privacy & Security**, scroll down to the message about
+     Speck, and click **Open Anyway**. Confirm with your password or Touch ID.
+
+   Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/Speck.app`, then open it normally.
+4. Speck has no Dock icon. Look for its icon in the menu bar, then follow [Setup](#setup).
+
+To update, quit Speck (menu bar icon → **Quit**, or ⌘Q while it’s open), download the new
+release and replace the old app in Applications. macOS asks for Keychain access once
+after each update. Choose **Always Allow**.
+
+## Build from source
 
 ```bash
 ./build.sh --install   # builds and copies to /Applications/Speck.app
