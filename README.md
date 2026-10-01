@@ -44,13 +44,23 @@ Keep a copy somewhere safe. Installed copies only accept updates signed with thi
 
 ## Setup
 
-1. Go to https://developer.spotify.com/dashboard → **Create app**
+The first time you open Speck, a setup window walks you through connecting it to Spotify.
+It takes about two minutes, and you need Spotify Premium. You can reopen the guide from the
+menu or from Settings.
+
+<details>
+<summary>Setting up by hand</summary>
+
+1. Go to https://developer.spotify.com/dashboard/create
    - Redirect URI: `http://127.0.0.1:8898/callback` (exactly this)
    - APIs used: **Web API** and **Web Playback SDK**
 2. Click the Speck icon in the menu bar → ⚙ (or ⌘,) to open **Settings**
-3. Paste the app's **Client ID**, then click **Log in with Spotify**
+3. Paste the app's **Client ID** (on the app's Settings page), then click **Log in with Spotify**
 
-Spotify Premium is required for playback control.
+</details>
+
+Each person creates their own Spotify app because Spotify limits apps that haven't been
+approved to a small number of users.
 
 ### Playing on this Mac
 Speck can also be a speaker itself: it runs Spotify's official Web Playback SDK in a hidden,

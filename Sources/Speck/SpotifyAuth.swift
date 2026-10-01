@@ -11,14 +11,23 @@ struct Tokens: Codable {
 }
 
 enum AuthError: LocalizedError {
-    case missingClientId, notLoggedIn, timedOut, badCallback(String), tokenExchange(String)
+    case missingClientId, invalidClientId, invalidRedirectURI, notLoggedIn, timedOut, denied, portInUse
+    case badCallback(String), tokenExchange(String)
     var errorDescription: String? {
         switch self {
         case .missingClientId: return "Add your Spotify Client ID in Settings"
+        case .invalidClientId:
+            return "Spotify doesn't recognise that Client ID. Copy it again from your app's Settings page on developer.spotify.com."
+        case .invalidRedirectURI:
+            return "Your Spotify app is missing the redirect URI. Add \(Prefs.redirectURI) under Redirect URIs in its settings, then Save."
         case .notLoggedIn: return "Not logged in"
-        case .timedOut: return "Login timed out"
+        case .timedOut:
+            return "Didn't hear back from Spotify. If the browser showed an error, check the Client ID and redirect URI, then try again."
+        case .denied: return "You cancelled the login on Spotify. Try again when you're ready."
+        case .portInUse:
+            return "Another app is using port \(Prefs.redirectPort), which Speck needs for login. Quit it and try again."
         case .badCallback(let s): return "Login failed: \(s)"
-        case .tokenExchange(let s): return "Token exchange failed: \(s)"
+        case .tokenExchange(let s): return "Spotify rejected the login: \(s)"
         }
     }
 }
@@ -62,6 +71,12 @@ final class SpotifyAuth {
         return try await task.value.accessToken
     }
 
+    /// True when the text looks like a Spotify Client ID (32 hex characters).
+    static func isPlausibleClientId(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.count == 32 && t.allSatisfy(\.isHexDigit)
+    }
+
     func login() async throws {
         let clientId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clientId.isEmpty else { throw AuthError.missingClientId }
@@ -81,13 +96,23 @@ final class SpotifyAuth {
             .init(name: "state", value: state),
         ]
 
+        // Spotify shows a bad Client ID or redirect URI as an error page and never redirects back,
+        // so ask it first and say what's wrong instead of leaving the user waiting.
+        if let problem = await Self.preflight(comps.url!) { throw problem }
+        try Task.checkCancellation()
+
         // The server only returns a callback whose state matches; forged requests are ignored.
         let server = LoopbackServer(port: UInt16(Prefs.redirectPort), expectedState: state)
-        let items = try await server.waitForCallback {
-            NSWorkspace.shared.open(comps.url!)
+        let items = try await withTaskCancellationHandler {
+            try await server.waitForCallback {
+                NSWorkspace.shared.open(comps.url!)
+            }
+        } onCancel: {
+            Task { @MainActor in server.cancel() }
         }
         func q(_ n: String) -> String? { items.first { $0.name == n }?.value }
 
+        if q("error") == "access_denied" { throw AuthError.denied }
         if let err = q("error") { throw AuthError.badCallback(err) }
         guard let code = q("code") else { throw AuthError.badCallback("no code") }
 
@@ -120,7 +145,9 @@ final class SpotifyAuth {
         guard code == 200 else {
             // Only a rejected grant means the login is dead; 429/5xx are transient and retried later.
             if previousRefresh != nil && (code == 400 || code == 401) { logout() }
-            throw AuthError.tokenExchange("HTTP \(code)")
+            struct E: Decodable { let error: String?; let error_description: String? }
+            let e = try? JSONDecoder().decode(E.self, from: data)
+            throw AuthError.tokenExchange(e?.error_description ?? e?.error ?? "HTTP \(code)")
         }
         struct R: Decodable { let access_token: String; let refresh_token: String?; let expires_in: Double; let scope: String? }
         let r = try JSONDecoder().decode(R.self, from: data)
@@ -131,6 +158,23 @@ final class SpotifyAuth {
         tokens = t
         Keychain.write(try JSONEncoder().encode(t), Self.keychainAccount)
         return t
+    }
+
+    /// Loads the authorize URL without following redirects. A valid app redirects to Spotify's login;
+    /// a bad one gets a 400 page naming the problem. Anything unexpected returns nil so login goes ahead.
+    private static func preflight(_ url: URL) async -> AuthError? {
+        final class NoRedirect: NSObject, URLSessionTaskDelegate {
+            func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                            newRequest request: URLRequest) async -> URLRequest? { nil }
+        }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        guard let (data, resp) = try? await URLSession.shared.data(for: req, delegate: NoRedirect()),
+              (resp as? HTTPURLResponse)?.statusCode == 400 else { return nil }
+        let body = String(decoding: data, as: UTF8.self).lowercased()
+        if body.contains("invalid redirect uri") { return .invalidRedirectURI }
+        if body.contains("invalid client") { return .invalidClientId }
+        return nil
     }
 
     private static func randomString(_ n: Int) -> String {
@@ -162,7 +206,10 @@ final class LoopbackServer: @unchecked Sendable {
                 l.newConnectionHandler = { [weak self] conn in self?.handle(conn) }
                 l.stateUpdateHandler = { state in
                     if case .ready = state { Task { @MainActor in onReady() } }
-                    if case .failed(let e) = state { self.finish(.failure(e)) }
+                    if case .failed(let e) = state {
+                        if case .posix(.EADDRINUSE) = e { self.finish(.failure(AuthError.portInUse)) }
+                        else { self.finish(.failure(e)) }
+                    }
                 }
                 l.start(queue: .main)
                 listener = l
@@ -172,6 +219,9 @@ final class LoopbackServer: @unchecked Sendable {
             }
         }
     }
+
+    /// Stops waiting (the user gave up on the browser login).
+    func cancel() { finish(.failure(CancellationError())) }
 
     private func handle(_ conn: NWConnection) {
         conn.start(queue: .main)

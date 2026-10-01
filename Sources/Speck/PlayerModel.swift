@@ -24,6 +24,12 @@ final class PlayerModel {
     var isLoggedIn = false
     var status: String?
 
+    // Login
+    enum LoginState { case idle, waiting, slow }   // slow: still waiting on the browser after 20s
+    var loginState = LoginState.idle
+    var loginError: String?
+    var isPremium: Bool?   // nil until checked
+
     // This Mac (Web Playback SDK)
     var localDeviceId: String?
     var canStreamHere = false   // false until the user logs in with the streaming scope
@@ -36,6 +42,7 @@ final class PlayerModel {
     @ObservationIgnored private var localPlayer: LocalPlayer!
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var searchTask: Task<Void, Never>?
+    @ObservationIgnored private var loginTask: Task<Void, Never>?
     @ObservationIgnored private var pauseUntil = Date.distantPast  // skip polls right after a command
 
     init() {
@@ -59,7 +66,11 @@ final class PlayerModel {
         canStreamHere = auth.canStream
         updateLocalPlayer()
         startPolling()
+        if isLoggedIn { Task { await checkPremium() } }
     }
+
+    /// First run, or logged out with no Client ID: the setup window should guide the user.
+    var needsSetup: Bool { !prefs.hasClientId || !isLoggedIn }
 
     /// Devices with this Mac's player first.
     var sortedDevices: [Device] {
@@ -109,19 +120,42 @@ final class PlayerModel {
     // MARK: Auth
 
     func login() {
-        Task {
+        guard loginTask == nil else { return }
+        loginError = nil
+        loginState = .waiting
+        status = "Waiting for browser login…"
+        loginTask = Task {
+            let slow = Task {
+                try? await Task.sleep(for: .seconds(20))
+                if !Task.isCancelled && loginState == .waiting { loginState = .slow }
+            }
+            defer { slow.cancel(); loginTask = nil; loginState = .idle }
             do {
-                status = "Waiting for browser login…"
                 auth.clientId = prefs.clientId
                 try await auth.login()
                 isLoggedIn = true
                 canStreamHere = auth.canStream
                 updateLocalPlayer()
                 status = nil
+                await checkPremium()
                 await refreshAll()
+            } catch is CancellationError {
+                status = nil
             } catch {
-                status = error.localizedDescription
+                loginError = error.localizedDescription
+                status = loginError
             }
+        }
+    }
+
+    /// Stops waiting for the browser.
+    func cancelLogin() { loginTask?.cancel() }
+
+    private func checkPremium() async {
+        guard let product = try? await api.product() else { return }
+        isPremium = product == "premium"
+        if isPremium == false {
+            status = "This Spotify account isn't Premium. Speck can show what's playing, but Spotify only lets Premium accounts control playback."
         }
     }
 
@@ -129,6 +163,7 @@ final class PlayerModel {
         auth.logout()
         isLoggedIn = false
         canStreamHere = false
+        isPremium = nil
         updateLocalPlayer()
         item = nil
         devices = []
