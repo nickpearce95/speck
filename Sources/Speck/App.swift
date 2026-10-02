@@ -21,7 +21,7 @@ struct SpeckApp: App {
                 .environment(model)
                 .environment(updater)
                 .frame(width: 340)
-                .background(PinWindowTop())
+                .background(FitWindowToContent())
                 .onAppear { model.menuOpen = true }
                 .onDisappear { model.menuOpen = false }
         } label: {
@@ -320,33 +320,38 @@ struct Footer: View {
     }
 }
 
-/// MenuBarExtra windows shrink towards the bottom, leaving a gap under the menu bar when the
-/// content gets shorter (e.g. search results clear). Keeps the window's top edge where it opened.
-struct PinWindowTop: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { PinView() }
+/// MenuBarExtra windows grow with their content but never shrink: when the content gets shorter
+/// (e.g. search results clear) the window keeps its height and centres the content, so it floats
+/// below the menu bar. This sits behind the content, so it's always the content's size, and
+/// resizes the window to match while keeping its top edge in place.
+struct FitWindowToContent: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { FitView() }
     func updateNSView(_ nsView: NSView, context: Context) {}
 
-    final class PinView: NSView {
-        private var top: CGFloat?
-        private var observers: [NSObjectProtocol] = []
+    final class FitView: NSView {
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            scheduleFit()
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            observers.forEach { NotificationCenter.default.removeObserver($0) }
-            observers = []
-            guard let window else { return }
-            let nc = NotificationCenter.default
-            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) {
-                [weak self, weak window] _ in
-                MainActor.assumeIsolated { self?.top = window?.frame.maxY }
-            })
-            observers.append(nc.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) {
-                [weak self, weak window] _ in
-                MainActor.assumeIsolated {
-                    guard let window, let top = self?.top, window.frame.maxY != top else { return }
-                    window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top))
-                }
-            })
+            scheduleFit()
+        }
+
+        // After the current layout pass, so the window isn't resized mid-layout
+        private func scheduleFit() {
+            DispatchQueue.main.async { [weak self] in self?.fit() }
+        }
+
+        private func fit() {
+            guard let window, let content = window.contentView, bounds.height > 0 else { return }
+            let chrome = window.frame.height - content.frame.height
+            let height = (bounds.height + chrome).rounded()
+            guard abs(window.frame.height - height) >= 1 else { return }
+            let top = window.frame.maxY
+            window.setFrame(NSRect(x: window.frame.minX, y: top - height, width: window.frame.width, height: height),
+                            display: true)
         }
     }
 }
