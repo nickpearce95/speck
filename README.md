@@ -127,10 +127,16 @@ themselves. To regenerate the app icon after editing `Icon/make-icon.swift`, run
 
 ### Releasing
 
-Run **Actions → Release → Run workflow** and enter the new version (e.g. `1.0`), or push a
-tag like `v1.0`. GitHub builds the app and publishes `Speck.zip` with a signature that
+Run **Actions → Release → Run workflow** and enter the new version (e.g. `1.1`), or push a
+tag like `v1.1`. GitHub builds the app and publishes `Speck.zip` with a signature that
 installed copies check before updating.
 
 One-time setup: run `swift scripts/update-key.swift | pbcopy` and paste the result as a
 repository secret named `UPDATE_SIGNING_KEY` (Settings → Secrets and variables → Actions).
 Keep a copy somewhere safe. Installed copies only accept updates signed with this key.
+
+## License
+
+[MIT](LICENSE). Speck isn't affiliated with or endorsed by Spotify. Using it means creating a
+Spotify app, which is covered by Spotify's
+[Developer Terms](https://developer.spotify.com/terms).
