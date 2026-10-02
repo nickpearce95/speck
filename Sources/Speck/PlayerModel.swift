@@ -72,9 +72,12 @@ final class PlayerModel {
     /// First run, or logged out with no Client ID: the setup window should guide the user.
     var needsSetup: Bool { !prefs.hasClientId || !isLoggedIn }
 
-    /// Devices with this Mac's player first.
+    /// Devices with this Mac's player first. Other entries with this Mac's player name are left over
+    /// from an earlier run (e.g. before an update restarted Speck), so they're hidden.
     var sortedDevices: [Device] {
-        devices.sorted { a, b in (a.id == localDeviceId ? 0 : 1) < (b.id == localDeviceId ? 0 : 1) }
+        devices
+            .filter { $0.name != LocalPlayer.deviceName || $0.id == localDeviceId }
+            .sorted { a, b in (a.id == localDeviceId ? 0 : 1) < (b.id == localDeviceId ? 0 : 1) }
     }
 
     /// True when playback is on this Mac's own Speck player.

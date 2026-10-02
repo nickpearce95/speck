@@ -62,7 +62,9 @@ Settings (⚙ in the menu, or ⌘,) also has:
 ### Playing on this Mac
 Speck can also be a speaker itself. It runs Spotify's official Web Playback SDK in a hidden,
 locked-down web view (with the same DRM as Safari) and shows up as **This Mac**. This needs
-**Web Playback SDK** ticked in your Spotify app, which the setup guide covers.
+**Web Playback SDK** ticked in your Spotify app, which the setup guide covers. Other Macs running
+Speck, and the Spotify apps, see it as **Speck on** followed by the Mac's name (from System
+Settings → General → Sharing).
 
 ### Chromecasts
 Spotify only lists an idle Chromecast after something has woken it. For speakers that

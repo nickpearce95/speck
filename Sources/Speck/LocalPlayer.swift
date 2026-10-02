@@ -1,4 +1,5 @@
 import AppKit
+import SystemConfiguration
 import WebKit
 
 /// Makes this Mac a Spotify Connect device by running Spotify's official Web Playback SDK in a
@@ -15,7 +16,17 @@ final class LocalPlayer: NSObject {
         case error(String)
     }
 
-    static let deviceName = "Speck (This Mac)"
+    /// Named after the Mac (System Settings → General → Sharing), so with Speck on several Macs
+    /// each one can tell the others apart, and so can the Spotify apps.
+    static let deviceName = "Speck on \((SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac")"
+
+    /// `deviceName` as a JavaScript string literal. JSON is valid JS; `<` is escaped so a computer
+    /// name can't close the script tag.
+    private static var deviceNameJS: String {
+        let json = (try? JSONEncoder().encode(deviceName)).map { String(decoding: $0, as: UTF8.self) } ?? "\"Speck\""
+        return json.replacingOccurrences(of: "<", with: "\\u003c")
+    }
+
     private static let origin = URL(string: "https://speck.invalid/")!
     private static let allowedHostSuffixes = ["spotify.com", "scdn.co", "spotifycdn.com"]
 
@@ -105,7 +116,7 @@ final class LocalPlayer: NSObject {
     window.onerror = m => post('error', {kind: 'script', message: String(m)});
     window.onSpotifyWebPlaybackSDKReady = () => {
       const player = new Spotify.Player({
-        name: \(String(reflecting: deviceName)),
+        name: \(deviceNameJS),
         volume: 0.8,
         getOAuthToken: cb => { waiting.push(cb); post('token'); }
       });
