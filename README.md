@@ -49,7 +49,8 @@ You can reopen the guide from the menu, or from Settings → Spotify.
 
 - Click the menu bar icon. The search box is ready, so type and press ↩ to play the top hit.
 - Click a result to play it, or ⌥-click a track to add it to the queue.
-- Click a device to move playback to it.
+- Click a device to move playback to it. Speakers Spotify doesn't list yet appear greyed out under
+  **On your network**. Click one to wake it (see [Speakers on your network](#speakers-on-your-network)).
 - Media keys, AirPods and Control Centre control whatever device is playing.
 
 Settings (⚙ in the menu, or ⌘,) also has:
@@ -66,12 +67,27 @@ locked-down web view (with the same DRM as Safari) and shows up as **This Mac**.
 Speck, and the Spotify apps, see it as **Speck on** followed by the Mac's name (from System
 Settings → General → Sharing).
 
-### Chromecasts
-Spotify only lists an idle Chromecast after something has woken it. For speakers that
-are always listed, use Music Assistant's **Spotify Connect** plugin (in Home Assistant):
-add the plugin once and tick each speaker under *Connected players*. Speck shows these
-as "Kitchen – Spotify Connect". For volume control to work, set the plugin's volume mode
-to sync with the player (Soloist engine).
+Speck keeps This Mac connected. It reconnects after the Mac wakes from sleep or the network comes
+back, reloads Spotify's player if it stops responding, and checks every minute that Spotify still
+lists it. While it's reconnecting, the menu shows **This Mac — connecting…** (click it to retry
+now). Settings → Playback shows what it's doing and has a **Reconnect** button.
+
+### Speakers on your network
+Spotify only lists an idle Chromecast or Sonos speaker after a Spotify app has woken it. Speck
+looks for Chromecasts, Sonos and other Spotify Connect speakers on your network and lists the ones
+Spotify doesn't know about yet under **On your network**. The first time, macOS asks whether
+Speck may find devices on your local network. Click **Allow**. You can change this later in System
+Settings → Privacy & Security → Local Network.
+
+Click a speaker to wake it. Speck logs it in to your Spotify account the way Spotify's own apps
+do, then moves playback to it once Spotify lists it. This is **experimental**: Spotify may refuse
+logins that come from your own Spotify app rather than its official ones. If waking fails, play to
+the speaker once from the Spotify app, and it will be selectable in Speck from then on.
+
+For speakers that are always listed, use Music Assistant's **Spotify Connect** plugin (in Home
+Assistant): add the plugin once and tick each speaker under *Connected players*. Speck shows these
+as "Kitchen – Spotify Connect". For volume control to work, set the plugin's volume mode to sync
+with the player (Soloist engine).
 
 ## Updates
 
@@ -94,7 +110,11 @@ Speck needs to be in your Applications folder to update itself.
 - **"Spotify Premium is required" or "This Spotify account isn't Premium".** Spotify only lets
   Premium accounts control playback from other apps.
 - **"No active device".** Open Spotify on one of your devices, or pick one under **Devices**.
-- **A Chromecast is missing.** See [Chromecasts](#chromecasts).
+- **A Chromecast or Sonos speaker is missing.** Check Speck is allowed in System Settings →
+  Privacy & Security → Local Network, then see [Speakers on your network](#speakers-on-your-network).
+- **This Mac is missing or stuck on "connecting".** Look at Settings → Playback → Status, or open
+  Console.app and search for `app.speck.menubar` to see each step. The same logs show why waking a
+  speaker failed.
 
 ## Security notes
 
@@ -107,6 +127,9 @@ Speck needs to be in your Applications folder to update itself.
 - The This Mac web view uses a non-persistent data store, can only load Spotify hosts in
   sub-frames, never navigates its top-level page, and its token bridge only answers the
   page Speck created.
+- Speaker discovery uses Bonjour on your local network only. Waking a speaker sends it a
+  Spotify access token over your local network (to a Chromecast over TLS, to Spotify Connect
+  speakers over plain HTTP, which is how Spotify's ZeroConf protocol works).
 - Updates are only installed when `Speck.zip` matches its Ed25519 signature (checked against a
   public key built into the app), and the app inside has the same bundle ID, a newer version and
   a valid code signature.

@@ -1,19 +1,29 @@
 import AppKit
+import Network
+import os
 import SystemConfiguration
 import WebKit
+
+private let log = Logger(subsystem: "app.speck.menubar", category: "ThisMac")
 
 /// Makes this Mac a Spotify Connect device by running Spotify's official Web Playback SDK in a
 /// hidden WebKit view. WebKit provides the FairPlay DRM the SDK needs, the same way Safari does.
 ///
 /// The web view is locked down: it loads only the SDK page, may only navigate to Spotify hosts,
 /// and the token bridge only answers the top-level page Speck created.
+///
+/// The SDK doesn't recover by itself when its connection drops (sleep, Wi-Fi changes, a script that
+/// fails to load), so this keeps it alive: a watchdog reloads it if it isn't ready in time, failures
+/// retry with backoff, and it reconnects after the Mac wakes or the network comes back. Each step is
+/// logged under the "app.speck.menubar" subsystem (Console.app) and reported for Settings.
 @MainActor
 final class LocalPlayer: NSObject {
     enum Event {
         case ready(deviceId: String)
         case notReady
         case stateChanged
-        case error(String)
+        case error(String)   // worth showing the user
+        case phase(String)   // what the player is doing, for Settings
     }
 
     /// Named after the Mac (System Settings → General → Sharing), so with Speck on several Macs
@@ -35,15 +45,66 @@ final class LocalPlayer: NSObject {
     private var webView: WKWebView?
     private var window: NSWindow?
 
+    private var wanted = false            // between start() and stop()
+    private var deviceId: String?         // set while the SDK reports ready
+    private var failures = 0              // consecutive, for backoff
+    private var networkUp = true
+    private var watchdog: Task<Void, Never>?
+    private var retryTask: Task<Void, Never>?
+    private var observers: [NSObjectProtocol] = []
+    private let pathMonitor = NWPathMonitor()
+
     init(tokenProvider: @escaping () async throws -> String, onEvent: @escaping (Event) -> Void) {
         self.tokenProvider = tokenProvider
         self.onEvent = onEvent
+        super.init()
+
+        let nc = NSWorkspace.shared.notificationCenter
+        observers.append(nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.willSleep() }
+        })
+        observers.append(nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.didWake() }
+        })
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let up = path.status == .satisfied
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.networkChanged(up: up) } }
+        }
+        pathMonitor.start(queue: .global(qos: .utility))
     }
 
-    var isRunning: Bool { webView != nil }
+    var isRunning: Bool { wanted }
 
     func start() {
-        guard webView == nil else { return }
+        guard !wanted else { return }
+        wanted = true
+        failures = 0
+        launch()
+    }
+
+    func stop() {
+        wanted = false
+        retryTask?.cancel()
+        teardown()
+        onEvent(.notReady)
+        report("Off")
+    }
+
+    /// Reloads the player now, e.g. because Spotify stopped listing it or the user asked.
+    func restart(_ reason: String) {
+        guard wanted else { return }
+        log.info("Restarting: \(reason, privacy: .public)")
+        retryTask?.cancel()
+        teardown()
+        launch()
+    }
+
+    // MARK: Lifecycle
+
+    private func launch() {
+        guard wanted, webView == nil else { return }
+        report("Loading Spotify's player")
+
         let cfg = WKWebViewConfiguration()
         cfg.websiteDataStore = .nonPersistent()          // no cookies or storage kept on disk
         cfg.mediaTypesRequiringUserActionForPlayback = [] // allow playback started remotely
@@ -69,40 +130,151 @@ final class LocalPlayer: NSObject {
         webView = wv
         window = win
         wv.loadHTMLString(Self.page, baseURL: Self.origin)
+        armWatchdog(30, "Spotify's player didn't start in time")
     }
 
-    func stop() {
-        webView?.evaluateJavaScript("window.__speckPlayer && window.__speckPlayer.disconnect()")
-        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "speck")
+    /// Removes the web view. Doesn't touch `wanted`, so callers decide whether to retry.
+    private func teardown() {
+        watchdog?.cancel()
+        watchdog = nil
+        if let wv = webView {
+            // Tell Spotify the device is leaving; keep the view alive until the script has run
+            wv.evaluateJavaScript("window.__speckPlayer && window.__speckPlayer.disconnect()") { _, _ in
+                withExtendedLifetime(wv) {}
+            }
+            wv.configuration.userContentController.removeScriptMessageHandler(forName: "speck")
+            wv.navigationDelegate = nil
+        }
         webView = nil
         window?.close()
         window = nil
-        onEvent(.notReady)
+        if deviceId != nil {
+            deviceId = nil
+            onEvent(.notReady)
+        }
     }
+
+    /// Tears down and tries again after a backoff: 2s, 4s, 8s… up to 2 minutes.
+    private func fail(_ reason: String) {
+        guard wanted else { return }
+        failures += 1
+        log.error("Failed (\(self.failures)): \(reason, privacy: .public)")
+        teardown()
+        retryTask?.cancel()
+        guard networkUp else {
+            report("Waiting for the network")
+            return
+        }
+        let delay = min(pow(2, Double(failures)), 120)
+        report("\(reason). Retrying in \(Int(delay))s")
+        if failures >= 3 { onEvent(.error("This Mac can't connect to Spotify (\(reason)). Retrying…")) }
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            self?.launch()
+        }
+    }
+
+    private func armWatchdog(_ seconds: Double, _ reason: String) {
+        watchdog?.cancel()
+        watchdog = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.fail(reason)
+        }
+    }
+
+    private func report(_ phase: String) {
+        log.info("\(phase, privacy: .public)")
+        onEvent(.phase(phase))
+    }
+
+    // MARK: Sleep and network
+
+    private func willSleep() {
+        guard wanted else { return }
+        log.info("Mac is going to sleep")
+        retryTask?.cancel()
+        teardown()
+        report("Paused while the Mac sleeps")
+    }
+
+    private func didWake() {
+        guard wanted else { return }
+        log.info("Mac woke up")
+        failures = 0
+        retryTask?.cancel()
+        teardown()
+        // Give Wi-Fi a moment to rejoin; the watchdog and backoff cover a slow network
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.launch()
+        }
+    }
+
+    private func networkChanged(up: Bool) {
+        let wasUp = networkUp
+        networkUp = up
+        guard wanted, up, !wasUp else { return }
+        log.info("Network is back")
+        failures = 0
+        // If the SDK is still connected, leave it alone so music playing here isn't interrupted
+        if deviceId == nil { restart("network came back") }
+    }
+
+    // MARK: Messages from the page
 
     fileprivate func handle(_ msg: WKScriptMessage) {
         // Only trust messages from the page we loaded, never from the SDK's iframes
         guard msg.frameInfo.isMainFrame, msg.frameInfo.securityOrigin.host == Self.origin.host,
+              msg.webView === webView,
               let body = msg.body as? [String: Any], let type = body["type"] as? String else { return }
 
         switch type {
         case "token":
             Task {
-                guard let token = try? await tokenProvider(),
-                      let json = try? JSONSerialization.data(withJSONObject: [token]),
-                      let arg = String(data: json, encoding: .utf8) else { return }
-                _ = try? await webView?.evaluateJavaScript("window.__speckToken(\(arg)[0])")
+                do {
+                    let token = try await tokenProvider()
+                    let json = try JSONSerialization.data(withJSONObject: [token])
+                    _ = try await webView?.evaluateJavaScript("window.__speckToken(\(String(decoding: json, as: UTF8.self))[0])")
+                } catch {
+                    fail("couldn't get a Spotify login token")
+                }
             }
         case "ready":
-            if let id = body["deviceId"] as? String { onEvent(.ready(deviceId: id)) }
+            guard let id = body["deviceId"] as? String else { return }
+            deviceId = id
+            failures = 0
+            watchdog?.cancel()
+            report("Connected")
+            onEvent(.ready(deviceId: id))
         case "notReady":
+            // The SDK may reconnect by itself; if it doesn't, reload it
+            deviceId = nil
             onEvent(.notReady)
+            report("Spotify dropped the connection; reconnecting")
+            armWatchdog(20, "Spotify dropped the connection")
         case "state":
             onEvent(.stateChanged)
         case "error":
             let kind = body["kind"] as? String ?? "error"
             let message = body["message"] as? String ?? ""
-            onEvent(.error(kind == "account_error" ? "This Mac needs Spotify Premium" : "This Mac: \(message)"))
+            switch kind {
+            case "account_error":
+                // Retrying won't help
+                retryTask?.cancel()
+                teardown()
+                report("Needs Spotify Premium")
+                onEvent(.error("This Mac needs Spotify Premium"))
+            case "playback_error":
+                onEvent(.error("This Mac: \(message)"))
+            case "script":
+                // Often harmless noise from the SDK; the watchdog catches a player that stops working
+                log.error("Script error: \(message, privacy: .public)")
+            default:   // load, connect, initialization_error, authentication_error
+                fail(message.isEmpty ? kind : message)
+            }
         default:
             break
         }
@@ -125,10 +297,11 @@ final class LocalPlayer: NSObject {
       player.addListener('player_state_changed', () => post('state'));
       for (const e of ['initialization_error', 'authentication_error', 'account_error', 'playback_error'])
         player.addListener(e, ({message}) => post('error', {kind: e, message}));
-      player.connect();
+      player.connect().then(ok => { if (!ok) post('error', {kind: 'connect', message: "Spotify's player couldn't connect"}); });
       window.__speckPlayer = player;
     };
-    </script><script src="https://sdk.scdn.co/spotify-player.js"></script></body></html>
+    </script><script src="https://sdk.scdn.co/spotify-player.js"
+      onerror='post("error", {kind: "load", message: "Spotify player script failed to load"})'></script></body></html>
     """
 }
 
@@ -143,11 +316,8 @@ extension LocalPlayer: WKNavigationDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        onEvent(.error("This Mac player crashed; restarting"))
-        self.webView = nil
-        window?.close()
-        window = nil
-        start()
+        guard webView === self.webView else { return }
+        fail("the player process crashed")
     }
 }
 

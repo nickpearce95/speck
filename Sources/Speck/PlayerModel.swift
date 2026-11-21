@@ -33,6 +33,11 @@ final class PlayerModel {
     // This Mac (Web Playback SDK)
     var localDeviceId: String?
     var canStreamHere = false   // false until the user logs in with the streaming scope
+    var localStatus = "Off"     // what the This Mac player is doing, for Settings
+
+    // Speakers found on the local network (Chromecasts, Sonos, other Spotify Connect speakers)
+    let discovery: SpeakerDiscovery
+    var wakingId: String?
     var menuOpen = false { didSet { if menuOpen { Task { await refreshAll() } } } }
 
     let prefs: Prefs
@@ -40,6 +45,8 @@ final class PlayerModel {
     private let api: SpotifyAPI
     @ObservationIgnored private var nowPlaying: NowPlaying!
     @ObservationIgnored private var localPlayer: LocalPlayer!
+    @ObservationIgnored private var waker: SpeakerWaker!
+    @ObservationIgnored private var healthTask: Task<Void, Never>?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var loginTask: Task<Void, Never>?
@@ -47,6 +54,7 @@ final class PlayerModel {
 
     init() {
         prefs = Prefs()
+        discovery = SpeakerDiscovery()
         auth = SpotifyAuth(clientId: prefs.clientId)
         api = SpotifyAPI(auth: auth)
         isLoggedIn = auth.isLoggedIn
@@ -63,10 +71,16 @@ final class PlayerModel {
             tokenProvider: { [auth] in try await auth.accessToken() },
             onEvent: { [weak self] in self?.handleLocal($0) }
         )
+        waker = SpeakerWaker(token: { [auth] in try await auth.accessToken() },
+                             userId: { [api] in try await api.userId() })
         canStreamHere = auth.canStream
         updateLocalPlayer()
         startPolling()
-        if isLoggedIn { Task { await checkPremium() } }
+        startLocalHealthCheck()
+        if isLoggedIn {
+            discovery.start()
+            Task { await checkPremium() }
+        }
     }
 
     /// First run, or logged out with no Client ID: the setup window should guide the user.
@@ -99,11 +113,24 @@ final class PlayerModel {
         }
     }
 
+    /// Reloads the This Mac player now (the user clicked "This Mac — connecting…").
+    func restartLocalPlayer() {
+        localPlayer.restart("requested from the menu")
+    }
+
     private func handleLocal(_ event: LocalPlayer.Event) {
         switch event {
         case .ready(let id):
             localDeviceId = id
-            Task { await refreshDevices() }
+            if status?.hasPrefix("This Mac") == true { status = nil }
+            // Spotify can take a few seconds to list a new device
+            Task {
+                for delay in [0.0, 2, 5] {
+                    try? await Task.sleep(for: .seconds(delay))
+                    await refreshDevices()
+                    if devices.contains(where: { $0.id == id }) { break }
+                }
+            }
         case .notReady:
             localDeviceId = nil
         case .stateChanged:
@@ -111,6 +138,33 @@ final class PlayerModel {
             if isLocalActive { Task { await refreshState() } }
         case .error(let message):
             status = message
+        case .phase(let phase):
+            localStatus = phase
+        }
+    }
+
+    /// The SDK can believe it's connected after Spotify has dropped it (it doesn't always notice a
+    /// dead connection). Once a minute, check Spotify still lists This Mac; if it's missing twice in
+    /// a row, reload the player.
+    private func startLocalHealthCheck() {
+        healthTask = Task { [weak self] in
+            var misses = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard let self else { return }
+                guard self.isLoggedIn, let id = self.localDeviceId,
+                      let list = try? await self.api.devices() else { misses = 0; continue }
+                self.devices = list
+                if list.contains(where: { $0.id == id }) {
+                    misses = 0
+                } else {
+                    misses += 1
+                    if misses >= 2 {
+                        misses = 0
+                        self.localPlayer.restart("Spotify stopped listing This Mac")
+                    }
+                }
+            }
         }
     }
 
@@ -139,6 +193,7 @@ final class PlayerModel {
                 isLoggedIn = true
                 canStreamHere = auth.canStream
                 updateLocalPlayer()
+                discovery.start()
                 status = nil
                 await checkPremium()
                 await refreshAll()
@@ -168,6 +223,7 @@ final class PlayerModel {
         canStreamHere = false
         isPremium = nil
         updateLocalPlayer()
+        discovery.stop()
         item = nil
         devices = []
         nowPlaying.update(item: nil, isPlaying: false, progressMs: 0, deviceName: nil)
@@ -230,7 +286,50 @@ final class PlayerModel {
         guard let id = d.id else { return }
         device = d
         let keepPlaying = isPlaying || item == nil ? true : false
-        run(refreshAfter: 1.0) { [api] in try await api.transfer(to: id, play: keepPlaying) }
+        let isLocal = id == localDeviceId
+        run(refreshAfter: 1.0) { [api] in
+            do {
+                try await api.transfer(to: id, play: keepPlaying)
+            } catch SpotifyAPIError.http(404, _) where isLocal {
+                // Spotify sometimes rejects a just-connected This Mac for a moment
+                try await Task.sleep(for: .seconds(1.5))
+                try await api.transfer(to: id, play: keepPlaying)
+            }
+        }
+    }
+
+    /// Speakers on the network that Spotify doesn't list (yet).
+    var networkOnlySpeakers: [NetworkSpeaker] {
+        discovery.speakers.filter { s in !devices.contains { s.matches($0) } }
+    }
+
+    /// Wakes a speaker Spotify doesn't list yet, then moves playback to it once Spotify lists it.
+    func wake(_ s: NetworkSpeaker) {
+        guard wakingId == nil else { return }
+        guard s.canWake else {
+            status = "\(s.name) can't be woken from Speck. Play to it once from the Spotify app."
+            return
+        }
+        wakingId = s.id
+        status = "Waking \(s.name)…"
+        Task {
+            defer { wakingId = nil }
+            do {
+                try await waker.wake(s)
+                for _ in 0..<10 {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    await refreshDevices()
+                    if let d = devices.first(where: { s.matches($0) }) {
+                        status = nil
+                        select(d)
+                        return
+                    }
+                }
+                status = "\(s.name) woke up, but Spotify hasn't listed it yet. Try again in a moment."
+            } catch {
+                status = "Couldn't wake \(s.name): \(error.localizedDescription)"
+            }
+        }
     }
 
     private var fallbackDeviceId: String? {
