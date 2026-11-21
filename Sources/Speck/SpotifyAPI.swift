@@ -87,6 +87,12 @@ final class SpotifyAPI {
         return try JSONDecoder().decode(R.self, from: try await request("GET", "/me")).product
     }
 
+    /// The account's Spotify user ID (its username).
+    func userId() async throws -> String {
+        struct R: Decodable { let id: String }
+        return try JSONDecoder().decode(R.self, from: try await request("GET", "/me")).id
+    }
+
     func devices() async throws -> [Device] {
         struct R: Decodable { let devices: [Device] }
         return try JSONDecoder().decode(R.self, from: try await request("GET", "/me/player/devices")).devices

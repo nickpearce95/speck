@@ -218,9 +218,20 @@ struct DevicesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            let asleep = model.networkOnlySpeakers
             Text("Devices").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            if model.devices.isEmpty {
+            if model.devices.isEmpty && asleep.isEmpty {
                 Text("No devices found").font(.caption).foregroundStyle(.secondary)
+            }
+            if model.isLoggedIn && model.prefs.thisMacEnabled {
+                if !model.canStreamHere {
+                    DeviceRow(name: "This Mac — log in again to enable", icon: "laptopcomputer", active: false,
+                              dimmed: true) { model.login() }
+                } else if model.localDeviceId == nil {
+                    DeviceRow(name: "This Mac — connecting…", icon: "laptopcomputer", active: false,
+                              dimmed: true) { model.restartLocalPlayer() }
+                        .help(model.localStatus)
+                }
             }
             ForEach(model.sortedDevices, id: \.self) { d in
                 let local = d.id != nil && d.id == model.localDeviceId
@@ -228,11 +239,16 @@ struct DevicesSection: View {
                           icon: local ? "laptopcomputer" : icon(for: d.type),
                           active: d.is_active) { model.select(d) }
             }
-            if model.isLoggedIn && !model.canStreamHere && model.prefs.thisMacEnabled {
-                DeviceRow(name: "This Mac — log in again to enable", icon: "laptopcomputer", active: false) {
-                    model.login()
+            if !asleep.isEmpty {
+                Text("On your network").font(.caption2).foregroundStyle(.tertiary).padding(.top, 4)
+                ForEach(asleep) { s in
+                    DeviceRow(name: s.name, icon: s.icon, active: false, dimmed: true,
+                              detail: model.wakingId == s.id ? "Waking…" : s.canWake ? "Wake" : nil) {
+                        model.wake(s)
+                    }
+                    .help(s.canWake ? "Spotify doesn't list this speaker yet. Click to wake it and play here."
+                                    : "Spotify doesn't list this speaker yet. Play to it once from the Spotify app.")
                 }
-                .foregroundStyle(.secondary)
             }
         }
     }
@@ -240,6 +256,8 @@ struct DevicesSection: View {
 
 struct DeviceRow: View {
     let name: String, icon: String, active: Bool
+    var dimmed = false        // not selectable yet (asleep, connecting, needs login)
+    var detail: String? = nil // e.g. "Wake"
     let action: () -> Void
     @State private var hover = false
 
@@ -249,9 +267,10 @@ struct DeviceRow: View {
                 Image(systemName: icon).frame(width: 18)
                 Text(name).lineLimit(1)
                 Spacer()
+                if let detail { Text(detail).font(.caption).foregroundStyle(.tertiary) }
                 if active { Image(systemName: "checkmark").foregroundStyle(.green) }
             }
-            .foregroundStyle(active ? .green : .primary)
+            .foregroundStyle(active ? AnyShapeStyle(.green) : dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             .padding(.vertical, 3).padding(.horizontal, 4)
             .background(hover ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())

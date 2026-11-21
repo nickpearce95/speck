@@ -77,6 +77,15 @@ struct SettingsView: View {
                      ? "Adds \"This Mac\" to the device list using Spotify's official web player engine."
                      : "Log out and in again to allow playback on this Mac.")
                     .font(.caption).foregroundStyle(.secondary)
+                if model.isLoggedIn && model.canStreamHere && model.prefs.thisMacEnabled {
+                    LabeledContent("Status") {
+                        HStack {
+                            Text(model.localDeviceId != nil ? "Connected" : model.localStatus)
+                                .foregroundStyle(.secondary).lineLimit(2)
+                            Button("Reconnect") { model.restartLocalPlayer() }.controlSize(.small)
+                        }
+                    }
+                }
                 Toggle("Route media keys to Speck", isOn: Binding(
                     get: { model.prefs.claimMediaKeys },
                     set: { model.setClaimMediaKeys($0) }

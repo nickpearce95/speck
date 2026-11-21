@@ -28,6 +28,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>Speck looks for Chromecast and Sonos speakers on your network so you can play music on them.</string>
+    <key>NSBonjourServices</key><array>
+        <string>_googlecast._tcp</string>
+        <string>_sonos._tcp</string>
+        <string>_spotify-connect._tcp</string>
+    </array>
+    <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
     <key>SpeckUpdateRepo</key><string>${UPDATE_REPO:-}</string>
     <key>SpeckUpdatePublicKey</key><string>${UPDATE_PUBLIC_KEY:-}</string>
 </dict>
