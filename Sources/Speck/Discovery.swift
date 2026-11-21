@@ -25,9 +25,10 @@ struct NetworkSpeaker: Identifiable, Hashable {
         name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    /// True when Spotify lists this speaker (directly, or through Music Assistant).
+    /// True when Spotify lists this speaker itself. A Music Assistant entry with the same name
+    /// ("Kitchen | Music Assistant") is a separate route to the speaker, so it doesn't count.
     func matches(_ d: Device) -> Bool {
-        Self.key(d.name) == id || Self.key(d.baseName) == id
+        Self.key(d.name) == id
     }
 }
 
@@ -37,6 +38,8 @@ struct NetworkSpeaker: Identifiable, Hashable {
 @Observable
 final class SpeakerDiscovery {
     private(set) var speakers: [NetworkSpeaker] = []
+    /// Why browsing isn't working, e.g. Local Network access was denied. Shown in Settings.
+    private(set) var problem: String?
 
     @ObservationIgnored private var browsers: [NWBrowser] = []
     @ObservationIgnored private var found: [NWEndpoint: NetworkSpeaker] = [:]
@@ -54,6 +57,7 @@ final class SpeakerDiscovery {
         browsers = []
         found = [:]
         speakers = []
+        problem = nil
     }
 
     private func browse(_ type: String, onFound: @escaping @MainActor (NWBrowser.Result) -> Void) {
@@ -72,9 +76,21 @@ final class SpeakerDiscovery {
                 }
             }
         }
-        browser.stateUpdateHandler = { state in
-            if case .failed(let error) = state {
-                log.error("Browsing \(type, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+        browser.stateUpdateHandler = { [weak self] state in
+            MainActor.assumeIsolated {
+                switch state {
+                case .ready:
+                    self?.problem = nil
+                case .failed(let error), .waiting(let error):
+                    log.error("Browsing \(type, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    if case .dns(let code) = error, code == -65570 {   // kDNSServiceErr_PolicyDenied
+                        self?.problem = "Local Network access is off. Turn on Speck in System Settings → Privacy & Security → Local Network."
+                    } else {
+                        self?.problem = "Couldn't look for speakers: \(error.localizedDescription)"
+                    }
+                default:
+                    break
+                }
             }
         }
         browser.start(queue: .main)
@@ -107,8 +123,15 @@ final class SpeakerDiscovery {
             for: r.endpoint)
     }
 
-    /// Sonos names come from the speaker's description (its room name).
+    /// Sonos service names are "RINCON_<id>@<room>". If one isn't, ask the speaker for its room name.
     private func addSonos(_ r: NWBrowser.Result) {
+        if case .service(let service, _, _, _) = r.endpoint, let at = service.lastIndex(of: "@") {
+            let room = String(service[service.index(after: at)...]).trimmingCharacters(in: .whitespaces)
+            if !room.isEmpty {
+                add(NetworkSpeaker(name: room, kind: .sonos, icon: "hifispeaker.fill"), for: r.endpoint)
+                return
+            }
+        }
         resolve(r) { [weak self] host, _ in
             guard let name = try await LocalNet.sonosRoomName(host: host) else { return }
             self?.add(NetworkSpeaker(name: name, kind: .sonos, icon: "hifispeaker.fill"), for: r.endpoint)
