@@ -86,6 +86,13 @@ struct SettingsView: View {
                         }
                     }
                 }
+                if model.isLoggedIn {
+                    LabeledContent("Speakers on this network") {
+                        Text(model.discovery.problem ?? speakerSummary)
+                            .foregroundStyle(model.discovery.problem == nil ? Color.secondary : Color.red)
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
                 Toggle("Route media keys to Speck", isOn: Binding(
                     get: { model.prefs.claimMediaKeys },
                     set: { model.setClaimMediaKeys($0) }
@@ -134,6 +141,11 @@ struct SettingsView: View {
             clientId = model.prefs.clientId
             NSApp.activate()
         }
+    }
+
+    private var speakerSummary: String {
+        let names = model.discovery.speakers.map(\.name)
+        return names.isEmpty ? "None found" : names.joined(separator: ", ")
     }
 
     private var updateInstalling: Bool {
